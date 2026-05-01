@@ -1,0 +1,313 @@
+---
+title: "PEMODELAN DAN KLASIFIKASI STATUS AKADEMIK MAHASISWA MENGGUNAKAN ANALISIS DISKRIMINAN DAN REGRESI LOGISTIK MULTINOMIAL"
+author: "Celine Nurhidayah Santoso (24031554033) | Dista Ishlahul Amalia (24031554063) | Dessy Saputri (24031554190) "
+date: "2026-04-26"
+output: html_document
+---
+
+```{r, echo=FALSE}
+library(htmltools)
+
+tags$style(HTML("
+  body {
+    font-family: 'Times New Roman';
+    font-size: 12px;
+  }
+  h1, h2, h3 {
+    font-family: 'Times New Roman';
+    font-weight: bold;
+  }
+"))
+```
+## LIBRARY
+```{r}
+library(MASS)
+library(nnet)
+library(MVN)
+library(biotools)
+library(corrplot)
+library(ggplot2)
+library(dplyr)
+library(GGally)
+library(broom)
+library(marginaleffects)
+library(pscl)
+library(car)
+```
+
+## IMPORT DATA
+```{r}
+data <- read.csv("data.csv", sep=";")
+
+head(data)
+str(data)
+names(data)
+summary(data)
+dim(data)
+```
+## FEATURE SELECTION
+```{r}
+df <- data[,c(
+"Target",
+"Age.at.enrollment",
+"Admission.grade",
+"Previous.qualification..grade.",
+"Curricular.units.1st.sem..approved.",
+"Curricular.units.2nd.sem..approved."
+)]
+
+df$Target <- as.factor(df$Target)
+str(df)
+```
+## STANDARDISASI
+```{r}
+X <- scale(
+df[,-1]
+)
+
+df_scaled <- data.frame(
+Target=df$Target,
+X
+)
+```
+## VISUALISASI AWAL
+```{r}
+# Distribusi kelas Target
+ggplot(
+df_scaled,
+aes(Target, fill=Target)
+)+
+geom_bar()+
+ggtitle(
+"Distribusi Status Akademik"
+)
+```
+
+```{r}
+# Boxplot per Kelas
+ggplot(
+df_scaled,
+aes(
+Target,
+Admission.grade,
+fill=Target
+)
+)+
+geom_boxplot()+
+ggtitle(
+"Admission Grade per Status"
+)
+```
+
+```{r}
+# Pairplot
+ggpairs(
+df_scaled,
+aes(color=Target)
+)
+```
+
+```{r}
+# Heatmap Korelasi
+cor_matrix <- cor(
+df_scaled[,-1]
+)
+
+corrplot(
+cor_matrix,
+method="color",
+addCoef.col="black"
+)
+```
+## UJI DEPENDENSI (MULTIKOLINEARITAS)
+```{r}
+# VIF
+model_vif <- lm(
+  Admission.grade ~ 
+  Age.at.enrollment +
+  Previous.qualification..grade. +
+  Curricular.units.1st.sem..approved. +
+  Curricular.units.2nd.sem..approved.,
+  data = df_scaled
+)
+
+vif(model_vif)
+```
+## ANALISIS DISKRIMINAN
+```{r}
+# Uji Normalitas
+MVN::mvn(
+  df_scaled[,-1],
+  mvn_test = "hz"
+)
+```
+
+```{r}
+# Box's M
+boxM(
+df_scaled[,-1],
+df_scaled$Target
+)
+```
+
+```{r}
+# Split Data
+set.seed(123)
+index <- sample(
+1:nrow(df_scaled),
+0.7*nrow(df_scaled)
+)
+
+train <- df_scaled[index,]
+test <- df_scaled[-index,]
+```
+
+```{r}
+# LDA
+fit_lda <- lda(
+Target~.,
+data=train
+)
+
+fit_lda
+fit_lda$scaling
+```
+
+```{r}
+# Prediksi
+pred_lda <- predict(
+fit_lda,
+test
+)
+```
+
+```{r}
+# Confussion Matrix
+cm <- table(
+Prediksi=pred_lda$class,
+Aktual=test$Target
+)
+
+cm
+mean(
+pred_lda$class==test$Target
+)
+```
+
+```{r}
+#Visualisasi
+cm_df <- as.data.frame(cm)
+
+ggplot(
+cm_df,
+aes(
+Aktual,
+Prediksi,
+fill=Freq
+)
+)+
+geom_tile()+
+geom_text(
+aes(label=Freq)
+)+
+ggtitle(
+"Confusion Matrix LDA"
+)
+```
+
+```{r}
+# Plot Canonical Discriminant
+lda_values <- predict(
+fit_lda
+)$x
+plot(
+lda_values,
+col=as.numeric(train$Target),
+pch=19,
+main="Discriminant Function Plot"
+)
+```
+## MULTINOMIAL LOGISTIC
+```{r}
+# Multinomial Berganda
+fit_full <- multinom(
+Target~
+Age.at.enrollment+
+Admission.grade+
+Previous.qualification..grade.+
+Curricular.units.1st.sem..approved.+
+Curricular.units.2nd.sem..approved.,
+data=df_scaled
+)
+
+summary(
+fit_full
+)
+```
+
+```{r}
+# Rasio Risiko Relatif
+exp(
+coef(fit_full)
+)
+```
+
+```{r}
+# Marginal Effects
+avg_comparisons(
+fit_full,
+variables=
+"Admission.grade",
+type="probs"
+)
+```
+
+```{r}
+# Pseudo R2
+pR2(
+fit_full
+)
+```
+
+```{r}
+# Prediksi
+pred_multi <- predict(
+fit_full
+)
+
+table(
+Prediksi=pred_multi,
+Aktual=df_scaled$Target
+)
+
+mean(
+pred_multi==
+df_scaled$Target
+)
+```
+
+```{r}
+# Visual Probabilitas Prediksi
+prob <- predict(
+fit_full,
+type="probs"
+)
+
+prob_df <- as.data.frame(
+prob
+)
+
+head(prob_df)
+
+ggplot(
+prob_df,
+aes(Graduate)
+)+
+geom_histogram(
+bins=30
+)+
+ggtitle(
+"Probabilitas Prediksi Graduate"
+)
+
+```
